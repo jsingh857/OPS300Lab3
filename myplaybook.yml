@@ -1,0 +1,98 @@
+- name: Docker Configuration
+  hosts: assignment
+  become: true
+#  vars_files: faultyvault.yml
+#  vars:
+#    ansible_become_pass: "{{password}}"
+  tasks:
+  - name: Install Docker
+    package:
+      name: docker-ce
+      state: latest
+  - name: Start Docker
+    service:
+      name: docker
+      enabled: yes
+      state: started
+  - name: Make Sure firewalld Is Installed
+    package:
+      name: firewalld
+      state: latest
+  - name: Make Sure firewalld Is Working
+    service:
+      name: firewalld
+      state: started
+      enabled: yes
+  - name: Allowing HTTPS Traffic
+    firewalld:
+      service: https
+      state: enabled
+      permanent: yes
+  - name: Allowing Docker-Swarm To Bypass firewalld
+    firewalld:
+      service: docker-swarm
+      state: enabled
+      permanent: yes
+
+  - name: Make Sure Swarm Is Ready
+    remote_user: user1
+    become: true
+    shell: sudo docker info | grep "Swarm"
+    register: status
+    ignore_errors: yes
+    
+  - name: Initialize Swarm
+    become_user: user1
+    become: true
+    shell: sudo docker swarm init --advertise-addr 192.168.40.1
+    when: "'user1' in ansible_ssh_user and 'inactive' in status.stdout"
+    ignore_errors: yes
+  
+  - name: Retrieve Swarm Join Token
+    remote_user: user1
+    become: true
+    command: docker swarm join-token -q worker
+    when: "'user1' in ansible_ssh_user"
+    register: join_token
+    tags: newtag
+
+  - name: Saving Variable
+    set_fact:
+      tokenVariable: "{{ join_token.stdout }}"
+    when: "'user1' in ansible_ssh_user"
+    tags: newtag
+
+  - name: Saving Token To a File
+#    become: true
+    copy:
+      content: "{{ tokenVariable }}"
+      dest: /home/swarmtoken.txt
+#    when: "'user1' in ansible_ssh_user"
+    tags: newtag
+    when: "'user1' in ansible_ssh_user"
+
+  - name: Read Token
+    shell: cat /home/swarmtoken.txt
+    register: TokenDebugged
+    tags: newtag
+    when: "'user1' in ansible_ssh_user"
+
+#  - name: Copy the file
+#    remote_user: user1
+#    become: true
+#    copy:
+#      src: /home/swarmtoken.txt
+#      dest: /home/swarmtoken.txt
+#    changed_when: false
+
+#  - name: Debug
+#    debug:
+#      var: Token.content | b64decode
+#    register: DebuggedToken
+
+#  - name: Joining Nodes
+#    become_user: user2
+#    become_method: sudo
+#    become: yes
+#    shell: docker swarm join --token "{{TokenDebugged}}" 192.168.40.1:2377
+#    tags: newtag
